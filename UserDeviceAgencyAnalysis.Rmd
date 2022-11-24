@@ -1,0 +1,190 @@
+---
+title: Cleaning, manipulating and analyzing of survey data from User and Device Agency
+  for understanding human and computer interaction
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## Process survey data
+
+The survey data used in this analysis is a Dataset for Studying How Human Relates to their Smart Devices (https://www.preprints.org/manuscript/202102.0567/v1) collected by Heidi Toivonen and Francesco Lelli as part of their research for investigating the relationship people have with their smart devices. This data is used in Agency in Human-Smart Device Relationships: An Exploratory Study (https://www.preprints.org/manuscript/202009.0495/v2), written by Heidi Toivonen and Francesco Lelli in September 2020.
+
+The data was downloaded and processed by Shruti Mukhtyar for Bellabeat Case Study during the week of November 2022 from c. The survey responses are available as an excel file Anonymized_UserRelationshipWithTheirSmartDevice_Dataset.xls. The survey questionnaire is available as Survey_UserRelationshipWithTheirSmartDevice.pdf.
+
+The Excel file was imported to Google Sheets and and split up into different worksheets. These worksheets were downloaded as csv files.
+
+Code required for knitr to work and output figures.
+```{r}
+r = getOption("repos")
+r["CRAN"] = "http://cran.us.r-project.org"
+options(repos = r)
+knitr::opts_chunk$set(fig.width=9)
+```
+
+## Import csv files of survey data
+
+```{r import survey data}
+setwd('~/Projects/coursera/Bellabeat Case Study/user_and_device_agency_survey/')
+survey_data <- read.csv('survey_data.csv', header=TRUE)
+survey_questions <- read.csv('survey_questions.csv', header=TRUE)
+likert_scale <- read.csv('likert_scale.csv', header=TRUE)
+device_category <- read.csv('device_category.csv', header=TRUE)
+```
+
+## Install packages
+
+```{r install and download packages}
+install.packages('tidyverse')
+install.packages('ggplot2')
+library(tidyverse)
+library(ggplot2)
+```
+
+## View sample of the data
+
+```{r look at data}
+tibble(survey_data)
+```
+
+## Filter survey data for women respondents
+
+According to the survey questionnaire Survey_UserRelationshipWithTheirSmartDevice.pdf, **Question 19 Sex** has the following responses:
+
+1	Male
+2	Female
+3	Other
+4	Prefer Not to Say
+
+Filter the survey data for women.
+
+```{r filtering a dataset to respondents identifying as women}
+survey_data_women <- survey_data %>%
+  filter(Q19 == 2)
+```
+
+## Smart Device Categories
+
+From the survey, the most common device that women have are Smart Watches like Polar or Fitbit. A few women have other personal health devices like a blood pressure monitor.
+
+```{r  echo = FALSE}
+women_device_categories <- survey_data_women %>%
+  select("Q16") %>%
+  na.omit() %>%
+  full_join(device_category, by ="Q16")
+
+ggplot(women_device_categories) +
+    geom_bar(mapping = aes(y = DeviceCategory))+
+    ggtitle(str_wrap("Smart watches are the most common personal smart devices owned by women", width=50))+
+    labs(x = "Total Survey Responses from Women", y = NULL)+
+    scale_y_discrete(labels = function(x) str_wrap(x, width = 35))
+```
+
+## Filter survey data for women respondents who have smart watches
+
+The survey has two device categories of interest that might be of interest - Smart Watches and Personal Health Devices. The Personal Health Device category (e.g.blood pressure monitor or scale) is not included in this analysis because it does not directly correspond to any of the Bellabeat products.
+
+```{r filtering a dataset to respondents identifying as women who have smart watches}
+women_personal_devices <- survey_data_women %>%
+  filter(Q16 == 1)
+```
+
+## Clean and reorganize survey data to analyze qualities that characterize human interaction with (technological) objects
+
+According to the authors of the study, the data collected in the survey can be used to analyse following attributes:
+- usability, the pragmatic attributes, or functionality of the device
+- cost-effectiveness or price utility, the perceived efficient use of money
+- self-extension or identification with the device
+- the social aspect of devices, such as social status or social self-image expression and the device’s capacity to enhance the user’s social relationships
+- the emotional aspects of using the device, such as joy or aesthetic pleasure
+- anthropomorphism, attributing human-like qualities to the device
+
+```{r install stringr package to wrap long axis labels into multiple lines}
+install.packages('stringr')
+library(stringr)
+```
+
+### Analysing cost-effectiveness or price utility, the perceived efficient use of money
+
+```{r  echo = FALSE}
+women_personal_devices %>%
+  select("Respondent", "Q10_1", "Q10_2", "Q10_3") %>%
+  # drop incomplete responses
+  na.omit() %>%
+  pivot_longer(cols=c("Q10_1", "Q10_2", "Q10_3"),
+                    names_to='QuestionID',
+                    values_to='ResponseID') %>%
+  group_by(QuestionID, ResponseID) %>% 
+  summarise(N = n()) %>%
+  # calculate response percentage for each question
+  mutate(Pct = N / sum(N)) %>%
+  left_join(survey_questions, by ="QuestionID") %>%
+  left_join(likert_scale, by ="ResponseID") %>%
+  # encode Response column as a factor to preserve plotting order in ggplot
+  mutate(Response = factor(Response, levels = Response)) %>%
+  ggplot()+
+    geom_bar(aes(x=reorder(Question, Response), y=Pct, fill=Response), stat="identity")+
+    coord_flip() + 
+    ggtitle(str_wrap("Saving time was more important than price to women when buying smart watches", width=50))+
+    labs(x = NULL, y = NULL, fill = NULL)+
+    scale_fill_brewer(palette="PRGn")+
+    theme(legend.position="right")+
+    scale_x_discrete(labels = function(x) str_wrap(x, width = 25))
+
+```
+
+### Analysing the social aspect of devices, such as social status or social self-image expression and the device’s capacity to enhance the user’s social relationships
+
+```{r  echo = FALSE}
+women_personal_devices %>%
+  select("Respondent", "Q9_1", "Q9_2", "Q9_3") %>%
+  # drop incomplete responses
+  na.omit() %>%
+  pivot_longer(cols=c("Q9_1", "Q9_2", "Q9_3"),
+                    names_to='QuestionID',
+                    values_to='ResponseID') %>%
+  group_by(QuestionID, ResponseID) %>% 
+  summarise(N = n()) %>%
+  # calculate response percentage for each question
+  mutate(Pct = N / sum(N)) %>%
+  left_join(survey_questions, by ="QuestionID") %>%
+  left_join(likert_scale, by ="ResponseID") %>%
+  # encode Response column as a factor to preserve plotting order in ggplot
+  mutate(Response = factor(Response, levels = Response)) %>%
+  ggplot()+
+    geom_bar(aes(x=reorder(Question, Response), y=Pct, fill=Response), stat="identity")+
+    coord_flip() + 
+    ggtitle(str_wrap("Buying smart watches is more of a lifestyle choice for women", width=50))+
+    labs(x = NULL, y = NULL, fill = NULL)+
+    scale_fill_brewer(palette="PRGn")+
+    theme(legend.position="right")+
+    scale_x_discrete(labels = function(x) str_wrap(x, width = 25))
+```
+
+## Analysing usability, the pragmatic attributes, or functionality of the device
+
+```{r  echo = FALSE}
+women_personal_devices %>%
+  select("Respondent", "Q8_1", "Q8_2", "Q8_3") %>%
+  # drop incomplete responses
+  na.omit() %>%
+  pivot_longer(cols=c("Q8_1", "Q8_2", "Q8_3"),
+                    names_to='QuestionID',
+                    values_to='ResponseID') %>%
+  group_by(QuestionID, ResponseID) %>% 
+  summarise(N = n()) %>%
+  # calculate response percentage for each question
+  mutate(Pct = N / sum(N)) %>%
+  left_join(survey_questions, by ="QuestionID") %>%
+  left_join(likert_scale, by ="ResponseID") %>%
+  # encode Response column as a factor to preserve plotting order in ggplot
+  mutate(Response = factor(Response, levels = Response)) %>%
+  ggplot()+
+    geom_bar(aes(x=reorder(Question, Response), y=Pct, fill=Response), stat="identity")+
+    coord_flip() + 
+    ggtitle(str_wrap("Usability and functionality are very important", width=50))+
+    labs(x = NULL, y = NULL, fill = NULL)+
+    scale_fill_brewer(palette="PRGn")+
+    theme(legend.position="right")+
+    scale_x_discrete(labels = function(x) str_wrap(x, width = 25))
+```
