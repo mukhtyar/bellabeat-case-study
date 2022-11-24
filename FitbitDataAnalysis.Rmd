@@ -1,0 +1,241 @@
+---
+title: "Cleaning, manipulating and analyzing of survey data from the Fitbit dataset"
+output: html_document
+---
+
+## About the data
+
+The FitBit Fitness Tracker Data (CC0: Public Domain, dataset made available through Mobius)is a Kaggle data set that contains personal fitness tracker from thirty fitbit users. Thirty eligible Fitbit users consented to the submission of personal tracker data, including minute-level output for physical activity, heart rate, and sleep monitoring. It includes information about daily activity, steps, and heart rate that can be used to explore users’ habits.
+
+The data was downloaded and processed by Shruti Mukhtyar for Bellabeat Case Study during the week of November 2022 from https://www.kaggle.com/datasets/arashnic/fitbit?select=Fitabase+Data+4.12.16-5.12.16. The dataset contains multiple csv files.
+
+Code required for knitr to work and output figures.
+```{r}
+r = getOption("repos")
+r["CRAN"] = "http://cran.us.r-project.org"
+options(repos = r)
+knitr::opts_chunk$set(fig.width=9)
+```
+
+## Install packages
+
+```{r  load-packages, include=FALSE}
+install.packages('tidyverse')
+install.packages('ggplot2')
+install.packages('lubridate')
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+```
+
+## Import csv files
+
+The following code imports multiple csv files from a folder into separate data frames. The data frame names are derived from the csv file names e.g. dailyActivity_merged.csv is imported to the dailyAcitivty dataframe.
+
+```{r import survey data}
+folder <- '~/Projects/coursera/Bellabeat Case Study/fitbit_data/'
+files <- list.files(path=folder, pattern = '.*csv')
+names <- gsub('.csv', '', files)
+
+# Read and store data frames
+for(i in 1:length(files)) {
+  dfname <- sapply(strsplit(names[i], '_'), getElement, 1)
+  assign(paste0(dfname), read.csv(paste0(folder, files[i])))
+}
+```
+
+## Data validation
+
+### Merge hourly data
+The hourly data on Intensities, Calories and Steps is stored in separate files. Create a single dataframe with all the hourly data similar to the daily data. The minute data is not used for this analysis.
+
+```{r}
+hourlyActivity <- left_join(hourlyCalories, hourlyIntensities) %>%
+  left_join(hourlySteps)
+tibble(hourlyActivity)
+```
+
+### Add a date time column
+```{r}
+# Daily activities
+dailyActivity$Date <- mdy(dailyActivity$ActivityDate)
+hourlyActivity$DateTime <- mdy_hms(hourlyActivity$ActivityHour)
+sleepDay$DateTime  <- mdy_hms(sleepDay$SleepDay)
+weightLogInfo$DateTime  <- mdy_hms(weightLogInfo$Date)
+heartrate$DateTime  <- mdy_hms(heartrate$Time)
+```
+
+### Check number of unique records for each dataset.
+
+More people tracked their physical activity compared to their sleep schcedule, weight logs or heartrate. Only 3 users out of 33 are common to all data tables.
+```{r}
+n_distinct(dailyActivity$Id)
+n_distinct(hourlyActivity$Id)
+n_distinct(sleepDay$Id)
+n_distinct(weightLogInfo$Id)
+n_distinct(heartrate$Id)
+```
+###  Check for Duplicates
+```{r}
+sum(duplicated(dailyActivity))
+sum(duplicated(hourlyActivity))
+sum(duplicated(sleepDay))
+sum(duplicated(weightLogInfo))
+sum(duplicated(heartrate))
+```
+###  Remove duplicates
+```{r}
+sleepDay <- distinct(sleepDay)
+```
+
+### Verify data integrity
+
+The stat_density function draws a smoother version of the histogram showing the distribution of the values for each daily activity metric. The TotalSteps and TotalDistance histograms show similar distributions, which is expected.
+```{r echo = FALSE}
+dailyActivity %>%
+  pivot_longer(
+    cols=TotalSteps:Calories,
+    names_to='Metric',
+    values_to='Value'
+  ) %>%
+  ggplot(aes(x = Value)) +  
+  stat_density() + 
+  facet_wrap(~Metric, scales='free')
+```
+```{r echo = FALSE}
+hourlyActivity %>%
+  pivot_longer(
+    cols=Calories:StepTotal,
+    names_to='Metric',
+    values_to='Value'
+  ) %>%
+  ggplot(aes(y = Value, x = DateTime)) +  
+  geom_point() + 
+  #scale_x_date(date_labels = "%m-%Y") +
+  facet_wrap(~Metric, scales='free')
+```
+The TotalMinutesAsleep and TotalTimeInBed data show similar clustering. 
+```{r echo = FALSE}
+sleepDay %>%
+  pivot_longer(
+    cols=TotalSleepRecords:TotalTimeInBed,
+    names_to='Metric',
+    values_to='Value'
+  ) %>%
+  ggplot(aes(y = Value, x = DateTime)) +  
+  geom_point() + 
+  facet_wrap(~Metric, scales='free')
+```
+
+```{r echo = FALSE}
+weightLogInfo %>%
+  pivot_longer(
+    cols=WeightKg:BMI,
+    names_to='Metric',
+    values_to='Value'
+  ) %>%
+  ggplot(aes(y = Value, x = DateTime)) +  
+  geom_point() + 
+  facet_wrap(~Metric, scales='free')
+```
+The resting heart rate during early hours of morning is lower than during the rest of the day. This also makes sense.
+```{r echo = FALSE}
+heartrate$Hour <- hour(heartrate$DateTime)
+attach(heartrate)
+  
+heartrate %>%
+  group_by(Hour, Value) %>% 
+    summarise(N = mean(Value)) %>%
+  ggplot(aes(y = Value, x = Hour)) +  
+  geom_point()
+```
+
+## Data Analysis
+
+### Find most active users
+```{r echo = FALSE}
+# Find common user ids
+Reduce(intersect, list(unique(dailyActivity$Id), unique(hourlyActivity$Id), unique(sleepDay$Id), unique(weightLogInfo$Id), unique(heartrate$Id)))
+```
+### Using the hourly data explore plot a heat map of average total steps taken in a hour per weekday across all users
+```{r echo = FALSE}
+# Add new columns with weekdays and week numbers
+hourlyActivity$Wday <- wday(hourlyActivity$DateTime, label = TRUE)
+hourlyActivity$Hour <- hour(hourlyActivity$DateTime)
+attach(hourlyActivity)
+
+#Assign color variables
+col1 = '#d8e1cf'
+col2 = '#af8dc3'
+
+hourlyActivity  %>%
+  select('Id', 'Wday', 'Hour', 'StepTotal') %>%
+  group_by(Wday, Hour) %>% 
+  summarise(N = mean(StepTotal)) %>% 
+  ggplot(aes(Hour, Wday)) + geom_tile(aes(fill = N), colour = "white", na.rm = TRUE) +
+    scale_fill_gradient(low = col1, high = col2) +  
+    guides(fill=guide_legend(title="Total Steps")) +
+    theme_bw() + theme_minimal() + 
+    labs(title = "Evenings and Weekends show higher activity levels",
+         y = NULL, x = 'Hour') +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+```
+### Using the daily data plot a heat map of average total steps taken in a week per weekday across all users
+```{r echo = FALSE}
+# Add new columns with weekdays and week numbers
+dailyActivity$Wday <- wday(dailyActivity$Date, label = TRUE)
+dailyActivity$Week <- week(dailyActivity$Date)
+attach(dailyActivity)
+
+#Assign color variables
+col1 = '#d8e1cf'
+col2 = '#af8dc3'
+
+dailyActivity  %>%
+  select('Id', 'Wday', 'Week', 'TotalSteps') %>%
+  group_by(Wday, Week) %>% 
+  summarise(N = mean(TotalSteps)) %>% 
+  ggplot(aes(Week, Wday)) + geom_tile(aes(fill = N), colour = "white", na.rm = TRUE) +
+    scale_fill_gradient(low = col1, high = col2) +  
+    guides(fill=guide_legend(title="Total Steps")) +
+    theme_bw() + theme_minimal() + 
+    labs(title = 'Average Activity Levels do not show much variation week to week',
+         y = NULL, x = 'Week') +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+```
+### Using the daily data visualize Lightly Active Minutes by weekdays for all unique users.
+```{r echo = FALSE}
+dailyActivity  %>%
+  #filter(Id == '4558609924') %>%
+  select('Id', 'Date', 'Wday', 'LightlyActiveMinutes', 'FairlyActiveMinutes') %>%
+  group_by(Id, Wday) %>% 
+  summarise(N = mean(LightlyActiveMinutes)) %>% 
+  ggplot(aes(x=Wday, y=N)) +
+  geom_bar(stat="identity", fill="#af8dc3") +
+  facet_wrap(~Id) +
+  labs(title = 'There is a lot of variation in how active users are during the week',
+         y = NULL, x = 'Weekday')
+```
+
+```{r echo = FALSE}
+dailyActivity  %>%
+  #filter(Id == '4558609924' | Id == '5577150313' | Id == '6962181067') %>%
+  filter(Week == '17') %>%
+  select('Id', 'Wday', 'LightlyActiveMinutes', 'FairlyActiveMinutes', 'VeryActiveMinutes') %>%
+  pivot_longer(cols=c('LightlyActiveMinutes', 'FairlyActiveMinutes', 'VeryActiveMinutes'),
+                    names_to='Metric',
+                    values_to='Minutes') %>%
+  group_by(Id, Wday, Metric) %>% 
+  summarise(N = sum(Minutes)) %>% 
+  ggplot() +
+    geom_bar(aes(x=Metric, y=N, fill=Metric), stat="identity") +
+    scale_fill_brewer(palette="Accent")+
+    labs(title = 'There is a lot of variation in how active FitBit users are during a week',
+         y = 'Active Minutes', x = NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+    facet_wrap(~Id)
+```
